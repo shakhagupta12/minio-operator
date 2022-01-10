@@ -1,0 +1,250 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-kms-encrypted
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kes-configuration
+  namespace: tenant-kms-encrypted
+stringData:
+  server-config.yaml: |-
+    address: :7373
+    root: _ # Effectively disabled since no root identity necessary.
+    tls:
+      key: /tmp/kes/server.key   # Path to the TLS private key
+      cert: /tmp/kes/server.crt # Path to the TLS certificate
+      proxy:
+        identities: []
+        header:
+          cert: X-Tls-Client-Cert
+    policy:
+      my-policy:
+        paths:
+        - /v1/key/create/*
+        - /v1/key/generate/*
+        - /v1/key/decrypt/*
+        identities:
+        - ${MINIO_KES_IDENTITY}
+    cache:
+      expiry:
+        any: 5m0s
+        unused: 20s
+    log:
+      error: on
+      audit: off
+    keys:
+      ## KES configured with fs (File System mode) doesnt work in Kubernetes environments and it's not recommended
+      ## use a real KMS
+      # fs:
+      #   path: "./keys" # Path to directory. Keys will be stored as files. Not Recommended for Production.
+      vault:
+        endpoint: "<PUT YOUR VAULT ENDPOINT HERE>"  # The Vault endpoint - e.g. https://127.0.0.1:8200
+        namespace: "" # An optional Vault namespace. See: https://www.vaultproject.io/docs/enterprise/namespaces/index.html
+        prefix: "<PUT YOUR KEY PREFIX HERE>"    # An optional K/V prefix. The server will store keys under this prefix.
+        approle:    # AppRole credentials. See: https://www.vaultproject.io/docs/auth/approle.html
+          id: "<PUT YOUR APPROLE ID HERE>"      # Your AppRole Role ID
+          secret: "<PUT YOUR APPROLE SECRET ID HERE>"  # Your AppRole Secret ID
+          retry: 15s  # Duration until the server tries to re-authenticate after connection loss.
+        tls:        # The Vault client TLS configuration for mTLS authentication and certificate verification
+          key: ""     # Path to the TLS client private key for mTLS authentication to Vault
+          cert: ""    # Path to the TLS client certificate for mTLS authentication to Vault
+          ca: ""      # Path to one or multiple PEM root CA certificates
+        status:     # Vault status configuration. The server will periodically reach out to Vault to check its status.
+          ping: 10s   # Duration until the server checks Vault's status again.
+      # aws:
+      #   # The AWS SecretsManager key store. The server will store
+      #   # secret keys at the AWS SecretsManager encrypted with
+      #   # AWS-KMS. See: https://aws.amazon.com/secrets-manager
+      #   secretsmanager:
+      #     endpoint: ""   # The AWS SecretsManager endpoint      - e.g.: secretsmanager.us-east-2.amazonaws.com
+      #     region: ""     # The AWS region of the SecretsManager - e.g.: us-east-2
+      #     kmskey: ""     # The AWS-KMS key ID used to en/decrypt secrets at the SecretsManager. By default (if not set) the default AWS-KMS key will be used.
+      #     credentials:   # The AWS credentials for accessing secrets at the AWS SecretsManager.
+      #       accesskey: ""  # Your AWS Access Key
+      #       secretkey: ""  # Your AWS Secret Key
+      #       token: ""      # Your AWS session token (usually optional)
+type: Opaque
+---
+apiVersion: v1
+data:
+  config.env: ZXhwb3J0IE1JTklPX1JPT1RfVVNFUj0ibWluaW8iCmV4cG9ydCBNSU5JT19ST09UX1BBU1NXT1JEPSJtaW5pbzEyMyIKZXhwb3J0IE1JTklPX1NUT1JBR0VfQ0xBU1NfU1RBTkRBUkQ9IkVDOjIiCmV4cG9ydCBNSU5JT19CUk9XU0VSPSJvbiI=
+kind: Secret
+metadata:
+  name: storage-configuration
+  namespace: tenant-kms-encrypted
+type: Opaque
+---
+apiVersion: v1
+data:
+  accessKey: ""
+  secretKey: ""
+kind: Secret
+metadata:
+  name: storage-creds-secret
+  namespace: tenant-kms-encrypted
+type: Opaque
+---
+apiVersion: v1
+data:
+  CONSOLE_ACCESS_KEY: Y29uc29sZQ==
+  CONSOLE_SECRET_KEY: Y29uc29sZTEyMw==
+kind: Secret
+metadata:
+  name: storage-user
+  namespace: tenant-kms-encrypted
+type: Opaque
+---
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  annotations:
+    prometheus.io/path: /minio/v2/metrics/cluster
+    prometheus.io/port: "9000"
+    prometheus.io/scrape: "true"
+  labels:
+    app: minio
+  name: storage-kms-encrypted
+  namespace: tenant-kms-encrypted
+spec:
+  certConfig: {}
+  configuration:
+    name: storage-configuration
+  credsSecret:
+    name: storage-creds-secret
+  env: []
+  externalCaCertSecret: []
+  externalCertSecret: []
+  image: minio/minio:RELEASE.2021-09-15T04-54-25Z
+  imagePullSecret: {}
+  kes:
+    affinity:
+      nodeAffinity: {}
+      podAffinity: {}
+      podAntiAffinity: {}
+    annotations: {}
+    image: ""
+    imagePullPolicy: IfNotPresent
+    kesSecret:
+      name: kes-configuration
+    keyName: ""
+    labels: {}
+    nodeSelector: {}
+    replicas: 2
+    resources: {}
+    securityContext:
+      fsGroup: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+      runAsUser: 1000
+    serviceAccountName: ""
+    tolerations: []
+  log:
+    affinity:
+      nodeAffinity: {}
+      podAffinity: {}
+      podAntiAffinity: {}
+    annotations: {}
+    audit:
+      diskCapacityGB: 10
+    db:
+      affinity:
+        nodeAffinity: {}
+        podAffinity: {}
+        podAntiAffinity: {}
+      annotations: {}
+      image: ""
+      initimage: ""
+      labels: {}
+      nodeSelector: {}
+      resources: {}
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+      serviceAccountName: ""
+      tolerations: []
+      volumeClaimTemplate:
+        metadata: {}
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+          storageClassName: standard
+    image: ""
+    labels: {}
+    nodeSelector: {}
+    resources: {}
+    securityContext:
+      fsGroup: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+      runAsUser: 1000
+    serviceAccountName: ""
+    tolerations: []
+  mountPath: /export
+  podManagementPolicy: Parallel
+  pools:
+  - affinity:
+      nodeAffinity: {}
+      podAffinity: {}
+      podAntiAffinity: {}
+    nodeSelector: {}
+    resources: {}
+    securityContext:
+      fsGroup: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+      runAsUser: 1000
+    servers: 4
+    tolerations: []
+    volumeClaimTemplate:
+      apiVersion: v1
+      kind: persistentvolumeclaims
+      metadata: {}
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Ti
+        storageClassName: standard
+      status: {}
+    volumesPerServer: 4
+  priorityClassName: ""
+  prometheus:
+    affinity:
+      nodeAffinity: {}
+      podAffinity: {}
+      podAntiAffinity: {}
+    annotations: {}
+    diskCapacityGB: 10
+    image: ""
+    initimage: ""
+    labels: {}
+    nodeSelector: {}
+    resources: {}
+    securityContext:
+      fsGroup: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+      runAsUser: 1000
+    serviceAccountName: ""
+    sidecarimage: ""
+    storageClassName: standard
+  requestAutoCert: true
+  s3:
+    bucketDNS: false
+  serviceAccountName: ""
+  serviceMetadata:
+    consoleServiceAnnotations: {}
+    consoleServiceLabels: {}
+    minioServiceAnnotations: {}
+    minioServiceLabels: {}
+  subPath: ""
+  users:
+  - name: storage-user
