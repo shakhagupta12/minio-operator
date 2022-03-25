@@ -36,6 +36,7 @@ rules:
     verbs:
       - get
       - watch
+      - patch
       - create
       - list
       - delete
@@ -115,8 +116,14 @@ rules:
   - apiGroups:
       - monitoring.coreos.com
     resources:
-      - servicemonitors
+      - prometheuses
+    verbs:
+      - '*'
+  - apiGroups:
+      - "coordination.k8s.io"
+    resources:
+      - leases
     verbs:
       - get
+      - update
       - create
-      - list
